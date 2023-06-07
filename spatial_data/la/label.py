@@ -325,8 +325,6 @@ class LabelAccessor:
                 gated_cells=set(self._obj.coords[Dims.CELLS].values),
             )
 
-            # graph.add_node(0)
-            # self._obj.attrs["graph"] = nx.to_dict_of_dicts(graph)
             return graph
 
         # pop and initialise graph
