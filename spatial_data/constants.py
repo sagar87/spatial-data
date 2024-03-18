@@ -45,6 +45,7 @@ class Features(object):
     ORIGINAL_LABELS = "_original_labels"
     X = "centroid-1"  # "_x"
     Y = "centroid-0"  # "_y"
+    TRANSFORMS = ["arcsinh", "log", "sqrt", "zscore"]
 
 
 # COLORS = [

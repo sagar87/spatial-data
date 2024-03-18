@@ -11,7 +11,7 @@ from ..base_logger import logger
 from ..constants import COLORS, Attrs, Dims, Features, Layers, Props
 from ..la.label import _format_labels
 from ..pl import _get_listed_colormap
-from .intensity import sum_intensity
+from .intensity import mean_intensity
 from .utils import (
     _colorize,
     _label_segmentation_mask,
@@ -344,7 +344,7 @@ class PreprocessingAccessor:
     def add_quantification(
         self,
         channels: Union[str, list] = "all",
-        func=sum_intensity,
+        func=mean_intensity,
         remove_unlabeled=True,
         key_added: str = Layers.INTENSITY,
         return_xarray=False,
@@ -357,7 +357,7 @@ class PreprocessingAccessor:
         channels : Union[str, list], optional
             The name of the channel or a list of channel names to be added. Default is "all".
         func : Callable, optional
-            The function used for quantification. Default is sum_intensity.
+            The function used for quantification. Default is mean_intensity.
         remove_unlabeled : bool, optional
             Whether to remove unlabeled cells. Default is True.
         key_added : str, optional
@@ -580,6 +580,76 @@ class PreprocessingAccessor:
         )
 
         return xr.merge([self._obj.sel(cells=da.cells), da])
+    
+    
+    def transform_expression_matrix(self, key: str = Layers.INTENSITY, transform: str = "arcsinh"):
+        # checking if there is an expression matrix in the data
+        if key not in self._obj:
+            raise ValueError(f"No expression matrix with key {key} found in the object. Make sure to call pp.quantify first.")
+        
+        if transform not in Features.TRANSFORMS:
+            raise ValueError(f"Invalid transform {transform}. Please choose one of {Features.TRANSFORMS}.")
+        
+        # getting the expression matrix
+        expression_matrix = self._obj[key]
+        
+        # applying the transformation
+        if transform == "arcsinh":
+            expression_matrix = np.arcsinh(expression_matrix)
+        elif transform == "log":
+            # handling negative inputs by raising a ValueError and exiting the function
+            if np.any(expression_matrix < 0):
+                raise ValueError("Expression matrix contains negative values. Log transformation is not possible.")
+            expression_matrix = np.log(expression_matrix)
+        elif transform == "sqrt":
+            # handling negative inputs by raising a ValueError and exiting the function
+            if np.any(expression_matrix < 0):
+                raise ValueError("Expression matrix contains negative values. Sqrt transformation is not possible.")
+            expression_matrix = np.sqrt(expression_matrix)
+        elif transform == "zscore":
+            expression_matrix = (expression_matrix - np.mean(expression_matrix)) / np.std(expression_matrix)
+            
+        # adding the transformed expression matrix to the object
+        self._obj = self._obj.assign({f"{key}_{transform}": expression_matrix})
+        
+        return self._obj
+    
+    
+    def clip_expression_matrix(self, key: str = Layers.INTENSITY, min_perc: float = 0, max_perc: float = 99, transform: str = "arcsinh"):
+        """
+        Clips the expression matrix to the specified percentiles.
+        """
+        # checking if there is an expression matrix in the data
+        if key not in self._obj:
+            raise ValueError(f"No expression matrix with key {key} found in the object. Make sure to call pp.quantify first.")
+        
+        # checking if the percentiles are within the range of 0 and 100
+        if (min_perc < 0) or (min_perc > 100) or (max_perc < 0) or (max_perc > 100):
+            raise ValueError("Percentiles must be within the range of 0 and 100.")
+        
+        # checking if the min_perc is smaller than the max_perc
+        if min_perc >= max_perc:
+            raise ValueError("min_perc must be smaller than max_perc.")
+        
+        # checking if the transform has been applied to the expression matrix
+        # if it has, we use the transformed expression matrix, otherwise we use the original expression matrix
+        if f"{key}_{transform}" in self._obj:
+            key = f"{key}_{transform}"
+        print(f"Using {key} for clipping")
+        
+        # getting the expression matrix
+        expression_matrix = self._obj[key]
+        
+        # clipping the expression matrix to the provided percentiles
+        min_val = np.percentile(expression_matrix, min_perc)
+        max_val = np.percentile(expression_matrix, max_perc)
+        expression_matrix = np.clip(expression_matrix, min_val, max_val)
+                
+        # adding the clipped expression matrix to the object
+        self._obj = self._obj.assign({f"{key}_clipped": expression_matrix})
+        
+        return self._obj
+    
 
     def restore(self, method="wiener", **kwargs):
         """

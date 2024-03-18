@@ -16,4 +16,5 @@ __all__ = [
     "arcsinh_sum_intensity",
     "arcsinh_var_intensity",
     "detect_peaks_num",
+    "transform_expression_matrix",
 ]
