@@ -3,6 +3,8 @@ import pandas as pd
 from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
 from skimage.segmentation import find_boundaries
+from scipy.ndimage import binary_dilation
+from skimage.morphology import disk
 
 from ..constants import COLORS
 
@@ -71,3 +73,68 @@ def generate_cmap(num_cell_types, colors=COLORS, labels=None):
         for c, t in zip(colors, labels)
     ]
     return cmap, legend_elements
+
+
+# adapted from CellSeg
+def compute_centroids(flatmasks):
+    masks = flatmasks.copy()
+    num_masks = len(np.unique(masks)) - 1
+    indices = np.where(masks != 0)
+    values = masks[indices[0], indices[1]]
+
+    maskframe = pd.DataFrame(np.transpose(np.array([indices[0], indices[1], values]))).rename(columns = {0:"x", 1:"y", 2:"id"})
+    centroids = maskframe.groupby('id').agg({'x': 'mean', 'y': 'mean'}).to_records(index = False).tolist()
+
+    return centroids
+
+
+def compute_boundbox(flatmasks):
+    masks = flatmasks.copy()
+    num_masks = len(np.unique(masks)) - 1
+    indices = np.where(masks != 0)
+    values = masks[indices[0], indices[1]]
+
+    maskframe = pd.DataFrame(np.transpose(np.array([indices[0], indices[1], values]))).rename(columns = {0:"y", 1:"x", 2:"id"})
+    bb_mins = maskframe.groupby('id').agg({'y': 'min', 'x': 'min'}).to_records(index = False).tolist()
+    bb_maxes = maskframe.groupby('id').agg({'y': 'max', 'x': 'max'}).to_records(index = False).tolist()
+    
+    return bb_mins, bb_maxes
+
+# adapted from CellSeg, but only sequential mode
+def grow_masks(flatmasks, growth, bb_mins, bb_maxes):
+    masks = flatmasks.copy()
+    num_masks = len(np.unique(masks)) - 1
+    
+    print(num_masks)
+
+    Y, X = masks.shape
+    struc = disk(1)
+    for _ in range(growth):
+        for i in range(num_masks):
+            mins = bb_mins[i]
+            maxes = bb_maxes[i]
+            minY, minX, maxY, maxX = mins[0] - 3*growth, mins[1] - 3*growth, maxes[0] + 3*growth, maxes[1] + 3*growth
+            if minX < 0: minX = 0
+            if minY < 0: minY = 0
+            if maxX >= X: maxX = X - 1
+            if maxY >= Y: maxY = Y - 1
+
+            currreg = masks[minY:maxY, minX:maxX]
+            mask_snippet = (currreg == i + 1)
+            full_snippet = currreg > 0
+            other_masks_snippet = full_snippet ^ mask_snippet
+            dilated_mask = binary_dilation(mask_snippet, struc)
+            final_update = (dilated_mask ^ full_snippet) ^ other_masks_snippet
+
+            pix_to_update = np.nonzero(final_update)
+
+            pix_X = np.array([min(j + minX, X) for j in pix_to_update[1]])
+            pix_Y = np.array([min(j + minY, Y) for j in pix_to_update[0]])
+            print([pix_Y, pix_X])
+            
+            try:
+                masks[pix_Y, pix_X] = i + 1
+            except IndexError:
+                print(f"Skipping mask {i}")
+
+        return masks
