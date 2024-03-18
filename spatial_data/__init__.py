@@ -2,6 +2,7 @@ from .constants import Dims, Features, Layers, Props
 from .container import load_image_data
 from .la import LabelAccessor
 from .pl import PlotAccessor
+from .ext import ExternalAccessor
 from .pp import PreprocessingAccessor  # , colorize, normalize
 from .pp import (
     arcsinh_mean_intensity,
@@ -19,6 +20,7 @@ __all__ = [
     "PreprocessingAccessor",
     "LabelAccessor",
     "PlotAccessor",
+    "ExternalAccessor",
     "SegmentationAccessor",
     "Layers",
     "Dims",
