@@ -225,7 +225,6 @@ class PreprocessingAccessor:
             dims=Dims.IMAGE,
             name=Layers.IMAGE,
         )
-        # im = xr.concat([self._obj[Layers.IMAGE], da], dim=Dims.IMAGE[0])
 
         return xr.merge([self._obj, da])
 
@@ -487,14 +486,13 @@ class PreprocessingAccessor:
             )
 
         return xr.merge([da, self._obj])
-
+    
+    
     def add_labels(
         self,
         df: Union[pd.DataFrame, None] = None,
         cell_col: str = "cell",
         label_col: str = "label",
-        colors: Union[list, None] = None,
-        names: Union[list, None] = None,
     ) -> xr.Dataset:
         """
         Adds labels to the image container.
@@ -507,11 +505,6 @@ class PreprocessingAccessor:
             The name of the column in the dataframe representing cell coordinates. Default is "cell".
         label_col : str, optional
             The name of the column in the dataframe representing cell labels. Default is "label".
-        colors : Union[list, None], optional
-            A list of colors corresponding to the cell labels. If None, random colors will be assigned. Default is None.
-        names : Union[list, None], optional
-            A list of names corresponding to the cell labels. If None, default names will be assigned. Default is None.
-
         Returns
         -------
         xr.Dataset
@@ -520,66 +513,20 @@ class PreprocessingAccessor:
         if df is None:
             cells = self._obj.coords[Dims.CELLS].values
             labels = np.ones(len(cells))
-            formated_labels = np.ones(len(cells))
-            unique_labels = np.unique(formated_labels)
         else:
-            sub = df.loc[:, [cell_col, label_col]].dropna()
-            cells = sub.loc[:, cell_col].values.squeeze()
-            labels = sub.loc[:, label_col].values.squeeze()
+            cells = df.loc[:, cell_col].values.squeeze()
+            labels = df.loc[:, label_col].values.squeeze()
+        unique_labels = np.unique(labels)
 
-            assert ~np.all(labels < 0), "Labels must be >= 0."
-
-            formated_labels = _format_labels(labels)
-            unique_labels = np.unique(formated_labels)
-
-        if np.all(formated_labels == labels):
-            da = xr.DataArray(
-                formated_labels.reshape(-1, 1),
-                coords=[cells, [Features.LABELS]],
-                dims=[Dims.CELLS, Dims.FEATURES],
-                name=Layers.OBS,
-            )
-        else:
-            da = xr.DataArray(
-                np.stack([formated_labels, labels], -1),
-                coords=[
-                    cells,
-                    [
-                        Features.LABELS,
-                        Features.ORIGINAL_LABELS,
-                    ],
-                ],
-                dims=[Dims.CELLS, Dims.FEATURES],
-                name=Layers.OBS,
-            )
-
-        da = da.where(
-            da.coords[Dims.CELLS].isin(
-                self._obj.coords[Dims.CELLS],
-            ),
-            drop=True,
+        da = xr.DataArray(
+            labels.reshape(-1, 1),
+            coords=[cells, [Features.LABELS]],
+            dims=[Dims.CELLS, Dims.FEATURES],
+            name=Layers.OBS,
         )
 
         self._obj = xr.merge([self._obj.sel(cells=da.cells), da])
-
-        if colors is not None:
-            assert len(colors) == len(unique_labels), "Colors has the same."
-        else:
-            colors = np.random.choice(COLORS, size=len(unique_labels), replace=False)
-
-        self._obj = self._obj.pp.add_properties(colors, Props.COLOR)
-
-        if names is not None:
-            assert len(names) == len(unique_labels), "Names has the same."
-        else:
-            names = [f"Cell type {i+1}" for i in range(len(unique_labels))]
-
-        self._obj = self._obj.pp.add_properties(names, Props.NAME)
-        self._obj[Layers.SEGMENTATION].values = _remove_unlabeled_cells(
-            self._obj[Layers.SEGMENTATION].values, self._obj.coords[Dims.CELLS].values
-        )
-
-        return xr.merge([self._obj.sel(cells=da.cells), da])
+        return self._obj
     
     
     def transform_expression_matrix(self, key: str = Layers.INTENSITY, transform: str = "arcsinh"):
@@ -609,13 +556,17 @@ class PreprocessingAccessor:
         elif transform == "zscore":
             expression_matrix = (expression_matrix - np.mean(expression_matrix)) / np.std(expression_matrix)
             
+        # removing the old expression matrix if it exists
+        if key in self._obj:
+            self._obj = self._obj.drop_vars(key)
+        
         # adding the transformed expression matrix to the object
-        self._obj = self._obj.assign({f"{key}_{transform}": expression_matrix})
+        self._obj = self._obj.assign({key: expression_matrix})
         
         return self._obj
     
     
-    def clip_expression_matrix(self, key: str = Layers.INTENSITY, min_perc: float = 0, max_perc: float = 99, transform: str = "arcsinh"):
+    def clip_expression_matrix(self, key: str = Layers.INTENSITY, min_perc: float = 0, max_perc: float = 99):
         """
         Clips the expression matrix to the specified percentiles.
         """
@@ -631,12 +582,6 @@ class PreprocessingAccessor:
         if min_perc >= max_perc:
             raise ValueError("min_perc must be smaller than max_perc.")
         
-        # checking if the transform has been applied to the expression matrix
-        # if it has, we use the transformed expression matrix, otherwise we use the original expression matrix
-        if f"{key}_{transform}" in self._obj:
-            key = f"{key}_{transform}"
-        print(f"Using {key} for clipping")
-        
         # getting the expression matrix
         expression_matrix = self._obj[key]
         
@@ -645,8 +590,12 @@ class PreprocessingAccessor:
         max_val = np.percentile(expression_matrix, max_perc)
         expression_matrix = np.clip(expression_matrix, min_val, max_val)
                 
+        # removing the old expression matrix if it exists
+        if key in self._obj:
+            self._obj = self._obj.drop_vars(key)
+            
         # adding the clipped expression matrix to the object
-        self._obj = self._obj.assign({f"{key}_clipped": expression_matrix})
+        self._obj = self._obj.assign({key: expression_matrix})
         
         return self._obj
     

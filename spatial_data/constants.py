@@ -8,11 +8,7 @@ class Layers(object):
     OBS = "_obs"
     NEIGHBORS = "_neighbors"
     INTENSITY = "_intensity"
-    # TODO: this should replace SEGMENTATION at some point, for now it is in an extra variable in order not to break everything
-    # the order of these is important, as the segmentation module will always look for the latter ones first
-    SEGMENTATION_LAYERS = ["_segmentation", "_segmentation_filtered", "_segmentation_grown"]
     
-
 
 class Dims(object):
     CHANNELS = "channels"

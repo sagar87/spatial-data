@@ -2,12 +2,11 @@ from typing import Union
 
 import numpy as np
 import xarray as xr
-from scipy.spatial import Delaunay
 from skimage.measure import regionprops_table
 from tqdm import tqdm
 
 from ..constants import Dims, Features, Layers
-from .helper import sum_intensity, grow_masks, compute_boundbox
+from .helper import grow_masks, compute_centroids
 
 PROPS_DICT = {"centroid-1": Features.X, "centroid-0": Features.Y}
 
@@ -35,21 +34,11 @@ class SegmentationAccessor:
         Filters cells by size.
         """
         # checking if the segmentation layer is present
-        if Layers.SEGMENTATION_LAYERS[0] not in self._obj:
+        if Layers.SEGMENTATION not in self._obj:
             raise ValueError("The object does not contain a segmentation mask.")
-        # checking if the filtered segmentation layer already exists
-        if Layers.SEGMENTATION_LAYERS[1] in self._obj:
-            raise ValueError("The object already contains a filtered segmentation mask.")
+        
         # checking if a grown segmentation mask already exists. If it does, we will use that for filtering, otherwise the normal one
-        segmentation = self._obj[Layers.SEGMENTATION_LAYERS[0]]
-        if Layers.SEGMENTATION_LAYERS[2] in self._obj:
-            if verbose:
-                print(f"Using {Layers.SEGMENTATION_LAYERS[2]} as basis for filtering")
-            segmentation = self._obj[Layers.SEGMENTATION_LAYERS[2]]
-        else:
-            if verbose:
-                print(f"Using {Layers.SEGMENTATION_LAYERS[0]} as basis for filtering")
-            
+        segmentation = self._obj[Layers.SEGMENTATION]            
         
         if verbose:
             print(f"Number of cells before filtering: {len(self._obj.coords['cells'].values)}")
@@ -67,8 +56,11 @@ class SegmentationAccessor:
             segmentation,
             coords=[self._obj.coords[Dims.Y], self._obj.coords[Dims.X]],
             dims=[Dims.Y, Dims.X],
-            name=f"{Layers.SEGMENTATION}_filtered",
+            name=Layers.SEGMENTATION,
         )
+        
+        # removing the old segmentation
+        self._obj = self._obj.drop_vars(Layers.SEGMENTATION)
         
         return xr.merge([self._obj, da])
     
@@ -77,21 +69,35 @@ class SegmentationAccessor:
         """
         Grows the cells in the segmentation mask.
         """
+        raise NotImplementedError("This method is not yet implemented, because the CellSeq code has some weird behavior.")
         # checking if the segmentation layer is present
-        if Layers.SEGMENTATION_LAYERS[0] not in self._obj:
+        if Layers.SEGMENTATION not in self._obj:
             raise ValueError("The object does not contain a segmentation mask.")
-        segmentation = self._obj[Layers.SEGMENTATION_LAYERS[0]].values
-        # checking if the filtered segmentation layer already exists
-        if Layers.SEGMENTATION_LAYERS[1] in self._obj:
-            segmentation = self._obj[Layers.SEGMENTATION_LAYERS[1]].values
-            if verbose:
-                print(f"Using {Layers.SEGMENTATION_LAYERS[1]} as basis for growing")
-        else:
-            if verbose:
-                print(f"Using {Layers.SEGMENTATION_LAYERS[0]} as basis for growing")
-                
-        # TODO: implement logic for mask growing
         
-        raise NotImplementedError("This function is not fully implemented yet.")
+        segmentation = self._obj[Layers.SEGMENTATION].values
+        centroids = compute_centroids(segmentation)
+        num_neighbors = min(30, self._obj.dims['cells'] - 1)
+        print(num_neighbors)
+        masks_grown = grow_masks(segmentation, centroids, iterations, num_neighbors=num_neighbors)
         
+        # assigning the grown masks to the object
+        da = xr.DataArray(
+            masks_grown,
+            coords=[self._obj.coords[Dims.Y], self._obj.coords[Dims.X]],
+            dims=[Dims.Y, Dims.X],
+            name=Layers.SEGMENTATION,
+        )
+        
+        # TODO: apparently we are losing cells here, this needs more work
+        # after segmentation masks were grown, the areas need to be updated
+        # self._obj = self._obj.pp.add_observations(['label', 'area'])
+        print(len(centroids))
+        print(len(np.unique(segmentation)))
+        print(len(np.unique(masks_grown)))
+        table = regionprops_table(masks_grown, properties=("label", "area"))
+        print(table["area"].shape)
+        self._obj = self._obj.pp.add_properties(table["area"], prop="area_grown")
+        
+        # TODO: reactivate this
+        # return xr.merge([self._obj, da])        
         
