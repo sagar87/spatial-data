@@ -8,6 +8,10 @@ class Layers(object):
     OBS = "_obs"
     NEIGHBORS = "_neighbors"
     INTENSITY = "_intensity"
+    # TODO: this should replace SEGMENTATION at some point, for now it is in an extra variable in order not to break everything
+    # the order of these is important, as the segmentation module will always look for the latter ones first
+    SEGMENTATION_LAYERS = ["_segmentation", "_segmentation_filtered", "_segmentation_grown"]
+    
 
 
 class Dims(object):
@@ -25,7 +29,6 @@ class Dims(object):
     IMAGE = ["channels", "x", "y"]
     COLORED_IMAGE = ["channels", "x", "y", "rgba"]
     SEGMENTATION = ["x", "y"]
-    # COORDINATES = ["cell_idx", "coords"]
     DATA = ["cell_idx", "channels"]
 
 
@@ -48,34 +51,7 @@ class Features(object):
     TRANSFORMS = ["arcsinh", "log", "sqrt", "zscore"]
 
 
-# COLORS = [
-#     "#000000",
-#     "#e6194b",
-#     "#3cb44b",
-#     "#ffe119",
-#     "#4363d8",
-#     "#f58231",
-#     "#911eb4",
-#     "#46f0f0",
-#     "#f032e6",
-#     "#bcf60c",
-#     "#fabebe",
-#     "#008080",
-#     "#e6beff",
-#     "#9a6324",
-#     "#fffac8",
-#     "#800000",
-#     "#aaffc3",
-#     "#808000",
-#     "#ffd8b1",
-#     "#000075",
-#     "#808080",
-#     "#ffffff",
-# ]
-
-
 COLORS = [
-    # "#000000",  # remove the black, as often, we have black colored annotation
     "#FFFF00",
     "#1CE6FF",
     "#FF34FF",

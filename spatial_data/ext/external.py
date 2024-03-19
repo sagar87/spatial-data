@@ -29,7 +29,9 @@ class ExternalAccessor:
         model = StarDist2D.from_pretrained('2D_versatile_fluo')
         
         # Predict the label image
+        print("Predicting")
         labels, _ = model.predict_instances(nuclear_img, scale=scale, n_tiles=(n_tiles, n_tiles))
         
         # Adding the segmentation mask to the xarray dataset
+        print("Adding to object")
         return self._obj.pp.add_segmentation(labels)

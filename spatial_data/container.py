@@ -7,11 +7,6 @@ import xarray as xr
 from .constants import Dims, Layers
 
 
-def hello_world(test):
-    return f"Hello World {test}"
-
-
-# TODO: Should also accept labels
 def load_image_data(
     image: np.ndarray,
     channel_coords: Union[str, List[str]],
@@ -72,8 +67,5 @@ def load_image_data(
 
     else:
         dataset = xr.Dataset(data_vars={Layers.IMAGE: im})
-
-    # data = dataset.se.quantify()
-    # dataset[Layers.DATA] = data
 
     return dataset
