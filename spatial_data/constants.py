@@ -8,7 +8,7 @@ class Layers(object):
     OBS = "_obs"
     NEIGHBORS = "_neighbors"
     INTENSITY = "_intensity"
-    
+
 
 class Dims(object):
     CHANNELS = "channels"

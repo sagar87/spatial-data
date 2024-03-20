@@ -15,58 +15,108 @@ from ..constants import Layers, Dims
 @xr.register_dataset_accessor("ext")
 class ExternalAccessor:
     """The external accessor enables the application of external tools such as StarDist or Astir"""
+
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
-        
-    def stardist(self, scale: float = 3, n_tiles: int = 12, normalize: bool = True, nuclear_channel: str = "DAPI", predict_big: bool = False,
-                 block_size: int = 256, min_overlap: int = 128, context: int = 128, axes: str = 'YX', **kwargs) -> xr.Dataset:
+
+    def stardist(
+        self,
+        scale: float = 3,
+        n_tiles: int = 12,
+        normalize: bool = True,
+        nuclear_channel: str = "DAPI",
+        predict_big: bool = False,
+        block_size: int = 256,
+        min_overlap: int = 128,
+        context: int = 128,
+        axes: str = "YX",
+        **kwargs
+    ) -> xr.Dataset:
         """Apply StarDist to the image"""
-        
+
         if Layers.SEGMENTATION in self._obj:
             raise ValueError("The object already contains a segmentation mask. StarDist will not be executed.")
-        
+
         # getting the nuclear image
-        nuclear_img = self._obj.pp['DAPI'].to_array().values.squeeze()
-        
+        nuclear_img = self._obj.pp["DAPI"].to_array().values.squeeze()
+
         if normalize:
             nuclear_img = csbdeep.utils.normalize(nuclear_img)
-        
+
         # Load the StarDist model
-        model = StarDist2D.from_pretrained('2D_versatile_fluo')
-        
+        model = StarDist2D.from_pretrained("2D_versatile_fluo")
+
         # Predict the label image
         if predict_big:
-            labels, _ = model.predict_instances_big(dapi_img_normalized, scale=scale, axes=axes, block_size=block_size, min_overlap=min_overlap, context=context)
+            labels, _ = model.predict_instances_big(
+                dapi_img_normalized,
+                scale=scale,
+                axes=axes,
+                block_size=block_size,
+                min_overlap=min_overlap,
+                context=context,
+            )
         else:
             labels, _ = model.predict_instances(nuclear_img, scale=scale, n_tiles=(n_tiles, n_tiles))
-        
+
         # Adding the segmentation mask to the xarray dataset
-        return self._obj.pp.add_segmentation(labels)
-    
-    
-    def astir(self, marker_dict: dict, key: str = Layers.INTENSITY, threshold: float = 0, seed: int = 42, learning_rate: float = 0.001, batch_size: float = 64, n_init: int = 5, 
-              n_init_epochs: int = 5, max_epochs: int = 500, **kwargs):
+        self._obj = self._obj.pp.add_segmentation(labels)
+
+        # adding centroids to obs
+        return self._obj.pp.add_observations()
+
+    def astir(
+        self,
+        marker_dict: dict,
+        key: str = Layers.INTENSITY,
+        threshold: float = 0,
+        seed: int = 42,
+        learning_rate: float = 0.001,
+        batch_size: float = 64,
+        n_init: int = 5,
+        n_init_epochs: int = 5,
+        max_epochs: int = 500,
+        **kwargs
+    ):
         # warn the user if the image is of anything other than uint8
         # right now we can't do anything about that, should be implemented later
         if self._obj[Layers.IMAGE].dtype != "uint8":
             warnings.warn("The image is not of type uint8, which is required for astir to work properly.")
 
-        expression_df = pd.DataFrame(self._obj[key].values, columns = self._obj.coords[Dims.CHANNELS].values)
+        expression_df = pd.DataFrame(self._obj[key].values, columns=self._obj.coords[Dims.CHANNELS].values)
         expression_df.index = self._obj.coords[Dims.CELLS].values
         model = astir.Astir(expression_df, marker_dict, dtype=torch.float64, random_seed=seed)
-        model.fit_type(learning_rate=learning_rate, batch_size=batch_size, n_init=n_init, n_init_epochs=n_init_epochs, max_epochs=max_epochs)
+        model.fit_type(
+            learning_rate=learning_rate,
+            batch_size=batch_size,
+            n_init=n_init,
+            n_init_epochs=n_init_epochs,
+            max_epochs=max_epochs,
+        )
         assigned_cell_types = model.get_celltypes(threshold=threshold)
         # assign the index to its own column (called cell)
         assigned_cell_types = assigned_cell_types.reset_index()
         # renaming the columns
-        assigned_cell_types.columns = ['cell', 'label']
+        assigned_cell_types.columns = ["cell", "label"]
         # setting the cell dtype to int
-        assigned_cell_types['cell'] = assigned_cell_types['cell'].astype(int)
+        assigned_cell_types["cell"] = assigned_cell_types["cell"].astype(int)
         return self._obj.pp.add_labels(assigned_cell_types)
-    
-    
+
+    def export_to_anndata(self):
+        """Export the xarray to an anndata object"""
+        # constructing the anndata object
+        adata = anndata.AnnData(self._obj[Layers.INTENSITY].values)
+        adata.var_names = self._obj.coords[Dims.CHANNELS].values
+        # adding the cell type predictions, sizes, etc.
+        obs_df = pd.DataFrame(self._obj[Layers.OBS], columns=self._obj.coords[Dims.FEATURES])
+        adata.obs = obs_df
+        return adata
+
     def export_to_spatialdata(self):
         """Export the xarray to a spatial data object"""
+        raise NotImplementedError(
+            "This method is not yet implemented because spatialdata is not playing nice with xarray. Make sure you sort out the dependencies first before using this method."
+        )
         image_raw = self._obj[Layers.IMAGE].values
         segmentation_masks = self._obj[Layers.SEGMENTATION].values
         # constructing the anndata object
@@ -75,5 +125,7 @@ class ExternalAccessor:
         # adding the cell type predictions, sizes, etc.
         obs_df = pd.DataFrame(self._obj[Layers.OBS], columns=self._obj.coords[Dims.FEATURES])
         adata.obs = obs_df
-        spatial_data_object = spatialdata.SpatialData(images={"image_raw": image_raw}, labels={"segmentation_masks": segmentation_masks}, table=adata)
+        spatial_data_object = spatialdata.SpatialData(
+            images={"image_raw": image_raw}, labels={"segmentation_masks": segmentation_masks}, table=adata
+        )
         return spatial_data_object

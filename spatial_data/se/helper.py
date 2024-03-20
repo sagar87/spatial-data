@@ -8,6 +8,7 @@ from scipy.spatial.distance import cdist
 
 from ..constants import COLORS
 
+
 # the three methods below were adapted from CellSeg
 # in some edge cases, it behaves a bit weird, and we might want to customize this method
 def compute_centroids(flatmasks):
@@ -16,40 +17,47 @@ def compute_centroids(flatmasks):
     indices = np.where(masks != 0)
     values = masks[indices[0], indices[1]]
 
-    maskframe = pd.DataFrame(np.transpose(np.array([indices[0], indices[1], values]))).rename(columns = {0:"x", 1:"y", 2:"id"})
-    centroids = maskframe.groupby('id').agg({'x': 'mean', 'y': 'mean'}).to_records(index = False).tolist()
+    maskframe = pd.DataFrame(np.transpose(np.array([indices[0], indices[1], values]))).rename(
+        columns={0: "x", 1: "y", 2: "id"}
+    )
+    centroids = maskframe.groupby("id").agg({"x": "mean", "y": "mean"}).to_records(index=False).tolist()
 
     return centroids
 
+
 def remove_overlaps_nearest_neighbors(masks, centroids):
-        final_masks = np.max(masks, axis = 2)
-        collisions = np.nonzero(np.sum(masks > 0, axis = 2) > 1)
-        collision_masks = masks[collisions]
-        collision_index = np.nonzero(collision_masks)
-        collision_masks = collision_masks[collision_index]
-        collision_frame = pd.DataFrame(np.transpose(np.array([collision_index[0], collision_masks]))).rename(columns = {0:"collis_idx", 1:"mask_id"})
-        grouped_frame = collision_frame.groupby('collis_idx')
-        for collis_idx, group in grouped_frame:
-            collis_pos = np.expand_dims(np.array([collisions[0][collis_idx], collisions[1][collis_idx]]), axis = 0)
-            prevval = final_masks[collis_pos[0,0], collis_pos[0,1]]
-            mask_ids = list(group['mask_id'])
-            curr_centroids = np.array([centroids[mask_id - 1] for mask_id in mask_ids])
-            dists = cdist(curr_centroids, collis_pos)
-            closest_mask = mask_ids[np.argmin(dists)]
-            final_masks[collis_pos[0,0], collis_pos[0,1]] = closest_mask
-            
-        return final_masks
-            
-            
+    final_masks = np.max(masks, axis=2)
+    collisions = np.nonzero(np.sum(masks > 0, axis=2) > 1)
+    collision_masks = masks[collisions]
+    collision_index = np.nonzero(collision_masks)
+    collision_masks = collision_masks[collision_index]
+    collision_frame = pd.DataFrame(np.transpose(np.array([collision_index[0], collision_masks]))).rename(
+        columns={0: "collis_idx", 1: "mask_id"}
+    )
+    grouped_frame = collision_frame.groupby("collis_idx")
+    for collis_idx, group in grouped_frame:
+        collis_pos = np.expand_dims(np.array([collisions[0][collis_idx], collisions[1][collis_idx]]), axis=0)
+        prevval = final_masks[collis_pos[0, 0], collis_pos[0, 1]]
+        mask_ids = list(group["mask_id"])
+        curr_centroids = np.array([centroids[mask_id - 1] for mask_id in mask_ids])
+        dists = cdist(curr_centroids, collis_pos)
+        closest_mask = mask_ids[np.argmin(dists)]
+        final_masks[collis_pos[0, 0], collis_pos[0, 1]] = closest_mask
+
+    return final_masks
+
+
 def grow_masks(flatmasks, centroids, growth, num_neighbors=30):
     masks = flatmasks.copy()
-    num_masks = len(np.unique(masks)) - 1 
-    print(f"Growing masks, initial number of masks: {num_masks}") 
+    num_masks = len(np.unique(masks)) - 1
+    print(f"Growing masks, initial number of masks: {num_masks}")
     indices = np.where(masks != 0)
     values = masks[indices[0], indices[1]]
 
-    maskframe = pd.DataFrame(np.transpose(np.array([indices[0], indices[1], values]))).rename(columns = {0:"x", 1:"y", 2:"id"})
-    cent_array = maskframe.groupby('id').agg({'x': 'mean', 'y': 'mean'}).to_numpy()
+    maskframe = pd.DataFrame(np.transpose(np.array([indices[0], indices[1], values]))).rename(
+        columns={0: "x", 1: "y", 2: "id"}
+    )
+    cent_array = maskframe.groupby("id").agg({"x": "mean", "y": "mean"}).to_numpy()
     connectivity_matrix = kneighbors_graph(cent_array, num_neighbors).toarray() * np.arange(1, num_masks + 1)
     connectivity_matrix = connectivity_matrix.astype(int)
     labels = {}
@@ -60,21 +68,21 @@ def grow_masks(flatmasks, centroids, growth, num_neighbors=30):
         layers_used.sort()
         currlayer = 0
         for layer in layers_used:
-            if currlayer != layer: 
+            if currlayer != layer:
                 break
             currlayer += 1
         labels[n + 1] = currlayer
-        
+
     print(f"Num labels: {len(labels)}, Labels: {labels}")
 
     possible_layers = len(list(set(labels.values())))
-    label_frame = pd.DataFrame(list(labels.items()), columns = ["maskid", "layer"])
+    label_frame = pd.DataFrame(list(labels.items()), columns=["maskid", "layer"])
     image_h, image_w = masks.shape
-    expanded_masks = np.zeros((image_h, image_w, possible_layers), dtype = np.uint32)
+    expanded_masks = np.zeros((image_h, image_w, possible_layers), dtype=np.uint32)
 
-    grouped_frame = label_frame.groupby('layer')
+    grouped_frame = label_frame.groupby("layer")
     for layer, group in grouped_frame:
-        currids = list(group['maskid'])
+        currids = list(group["maskid"])
         masklocs = np.isin(masks, currids)
         expanded_masks[masklocs, layer] = masks[masklocs]
 

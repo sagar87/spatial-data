@@ -171,7 +171,7 @@ def _remove_unlabeled_cells(segmentation: np.ndarray, cells: np.ndarray, copy: b
 def run_otsu_thresholding(data, return_type="assignments"):
     flattened_data = data.flatten()
     threshold_value = filters.threshold_otsu(flattened_data)
-    
+
     if return_type == "threshold":
         return threshold_value
     else:

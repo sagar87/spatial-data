@@ -19,7 +19,7 @@ from .utils import (
     _remove_segmentation_mask_labels,
     _remove_unlabeled_cells,
     _render_label,
-    run_otsu_thresholding
+    run_otsu_thresholding,
 )
 
 
@@ -341,7 +341,6 @@ class PreprocessingAccessor:
 
         return xr.merge([self._obj, da])
 
-
     # TODO: channels is not used here, needs to be implemented properly
     def add_quantification(
         self,
@@ -443,13 +442,9 @@ class PreprocessingAccessor:
         )
 
         return xr.merge([self._obj, da])
-    
-    
+
     def add_marker_binarization(
-        self,
-        channels: Union[str, list] = "all",
-        method = Features.BINARIZATION_METHODS[0],
-        key: str = Layers.INTENSITY
+        self, channels: Union[str, list] = "all", method=Features.BINARIZATION_METHODS[0], key: str = Layers.INTENSITY
     ) -> xr.Dataset:
         """
         Binarizes all channels via thresholding.
@@ -457,8 +452,10 @@ class PreprocessingAccessor:
         """
         # check if the method is a valid binarization method
         if method not in Features.BINARIZATION_METHODS:
-            raise ValueError(f"Invalid binarization method {method}. Please choose one of {Features.BINARIZATION_METHODS}.")
-        
+            raise ValueError(
+                f"Invalid binarization method {method}. Please choose one of {Features.BINARIZATION_METHODS}."
+            )
+
         # getting the expression matrix in the form of a numpy array
         expression_matrix = self._obj[key].values
         binarization_matrix = []
@@ -469,7 +466,7 @@ class PreprocessingAccessor:
             binarization_matrix.append(run_otsu_thresholding(data))
         binarization_matrix = np.array(binarization_matrix).T
         col_names = [f"{x}_binarization_{method}" for x in self._obj.coords[Dims.CHANNELS].values]
-        
+
         # putting the binarization matrix in the form of a DataArray
         da = xr.DataArray(
             binarization_matrix,
@@ -477,7 +474,7 @@ class PreprocessingAccessor:
             dims=[Dims.CELLS, Dims.FEATURES],
             name=Layers.OBS,
         )
-                
+
         # if there are already observations, concatenate them
         if Layers.OBS in self._obj:
             logger.info(f"Found {Layers.OBS} in image container. Concatenating.")
@@ -487,7 +484,6 @@ class PreprocessingAccessor:
             )
 
         return xr.merge([self._obj, da])
-
 
     def add_properties(
         self, array: Union[np.ndarray, list], prop: str = Features.LABELS, return_xarray: bool = False
@@ -534,8 +530,7 @@ class PreprocessingAccessor:
             )
 
         return xr.merge([da, self._obj])
-    
-    
+
     def add_labels(
         self,
         df: Union[pd.DataFrame, None] = None,
@@ -575,19 +570,20 @@ class PreprocessingAccessor:
 
         self._obj = xr.merge([self._obj.sel(cells=da.cells), da])
         return self._obj
-    
-    
+
     def transform_expression_matrix(self, key: str = Layers.INTENSITY, transform: str = "arcsinh"):
         # checking if there is an expression matrix in the data
         if key not in self._obj:
-            raise ValueError(f"No expression matrix with key {key} found in the object. Make sure to call pp.quantify first.")
-        
+            raise ValueError(
+                f"No expression matrix with key {key} found in the object. Make sure to call pp.quantify first."
+            )
+
         if transform not in Features.TRANSFORMS:
             raise ValueError(f"Invalid transform {transform}. Please choose one of {Features.TRANSFORMS}.")
-        
+
         # getting the expression matrix
         expression_matrix = self._obj[key]
-        
+
         # applying the transformation
         if transform == "arcsinh":
             expression_matrix = np.arcsinh(expression_matrix)
@@ -603,50 +599,50 @@ class PreprocessingAccessor:
             expression_matrix = np.sqrt(expression_matrix)
         elif transform == "zscore":
             expression_matrix = (expression_matrix - np.mean(expression_matrix)) / np.std(expression_matrix)
-            
+
         # removing the old expression matrix if it exists
         if key in self._obj:
             self._obj = self._obj.drop_vars(key)
-        
+
         # adding the transformed expression matrix to the object
         self._obj = self._obj.assign({key: expression_matrix})
-        
+
         return self._obj
-    
-    
+
     def clip_expression_matrix(self, key: str = Layers.INTENSITY, min_perc: float = 0, max_perc: float = 99):
         """
         Clips the expression matrix to the specified percentiles.
         """
         # checking if there is an expression matrix in the data
         if key not in self._obj:
-            raise ValueError(f"No expression matrix with key {key} found in the object. Make sure to call pp.quantify first.")
-        
+            raise ValueError(
+                f"No expression matrix with key {key} found in the object. Make sure to call pp.quantify first."
+            )
+
         # checking if the percentiles are within the range of 0 and 100
         if (min_perc < 0) or (min_perc > 100) or (max_perc < 0) or (max_perc > 100):
             raise ValueError("Percentiles must be within the range of 0 and 100.")
-        
+
         # checking if the min_perc is smaller than the max_perc
         if min_perc >= max_perc:
             raise ValueError("min_perc must be smaller than max_perc.")
-        
+
         # getting the expression matrix
         expression_matrix = self._obj[key]
-        
+
         # clipping the expression matrix to the provided percentiles
         min_val = np.percentile(expression_matrix, min_perc)
         max_val = np.percentile(expression_matrix, max_perc)
         expression_matrix = np.clip(expression_matrix, min_val, max_val)
-                
+
         # removing the old expression matrix if it exists
         if key in self._obj:
             self._obj = self._obj.drop_vars(key)
-            
+
         # adding the clipped expression matrix to the object
         self._obj = self._obj.assign({key: expression_matrix})
-        
+
         return self._obj
-    
 
     def restore(self, method="wiener", **kwargs):
         """
