@@ -19,6 +19,7 @@ from .utils import (
     _remove_segmentation_mask_labels,
     _remove_unlabeled_cells,
     _render_label,
+    run_otsu_thresholding
 )
 
 
@@ -340,6 +341,8 @@ class PreprocessingAccessor:
 
         return xr.merge([self._obj, da])
 
+
+    # TODO: channels is not used here, needs to be implemented properly
     def add_quantification(
         self,
         channels: Union[str, list] = "all",
@@ -440,6 +443,51 @@ class PreprocessingAccessor:
         )
 
         return xr.merge([self._obj, da])
+    
+    
+    def add_marker_binarization(
+        self,
+        channels: Union[str, list] = "all",
+        method = Features.BINARIZATION_METHODS[0],
+        key: str = Layers.INTENSITY
+    ) -> xr.Dataset:
+        """
+        Binarizes all channels via thresholding.
+        TODO: For now it does this for all the channels, but should implement it so that it can also only perform the binarization on selected channels
+        """
+        # check if the method is a valid binarization method
+        if method not in Features.BINARIZATION_METHODS:
+            raise ValueError(f"Invalid binarization method {method}. Please choose one of {Features.BINARIZATION_METHODS}.")
+        
+        # getting the expression matrix in the form of a numpy array
+        expression_matrix = self._obj[key].values
+        binarization_matrix = []
+        # iterating through each marker
+        for marker_index in range(len(self._obj.coords[Dims.CHANNELS])):
+            # getting the data as a 2D array
+            data = np.array(expression_matrix[:, marker_index]).reshape(-1, 1)
+            binarization_matrix.append(run_otsu_thresholding(data))
+        binarization_matrix = np.array(binarization_matrix).T
+        col_names = [f"{x}_binarization_{method}" for x in self._obj.coords[Dims.CHANNELS].values]
+        
+        # putting the binarization matrix in the form of a DataArray
+        da = xr.DataArray(
+            binarization_matrix,
+            coords=[self._obj.coords[Dims.CELLS].values, col_names],
+            dims=[Dims.CELLS, Dims.FEATURES],
+            name=Layers.OBS,
+        )
+                
+        # if there are already observations, concatenate them
+        if Layers.OBS in self._obj:
+            logger.info(f"Found {Layers.OBS} in image container. Concatenating.")
+            da = xr.concat(
+                [self._obj[Layers.OBS].copy(), da],
+                dim=Dims.FEATURES,
+            )
+
+        return xr.merge([self._obj, da])
+
 
     def add_properties(
         self, array: Union[np.ndarray, list], prop: str = Features.LABELS, return_xarray: bool = False

@@ -2,6 +2,7 @@ from typing import List, Union
 
 import numpy as np
 from skimage.segmentation import find_boundaries
+from skimage import filters
 
 from ..pl import _get_linear_colormap
 
@@ -165,3 +166,13 @@ def _remove_unlabeled_cells(segmentation: np.ndarray, cells: np.ndarray, copy: b
     segmentation[bool_mask] = 0
 
     return segmentation
+
+
+def run_otsu_thresholding(data, return_type="assignments"):
+    flattened_data = data.flatten()
+    threshold_value = filters.threshold_otsu(flattened_data)
+    
+    if return_type == "threshold":
+        return threshold_value
+    else:
+        return np.where(flattened_data <= threshold_value, 0, 1)

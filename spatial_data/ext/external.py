@@ -7,6 +7,8 @@ import numpy as np
 import warnings
 import astir
 import torch
+import spatialdata
+import anndata
 from ..constants import Layers, Dims
 
 
@@ -16,7 +18,8 @@ class ExternalAccessor:
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
         
-    def stardist(self, scale: float = 3, n_tiles: int = 12, normalize: bool = True, nuclear_channel: str = "DAPI", **kwargs) -> xr.Dataset:
+    def stardist(self, scale: float = 3, n_tiles: int = 12, normalize: bool = True, nuclear_channel: str = "DAPI", predict_big: bool = False,
+                 block_size: int = 256, min_overlap: int = 128, context: int = 128, axes: str = 'YX', **kwargs) -> xr.Dataset:
         """Apply StarDist to the image"""
         
         if Layers.SEGMENTATION in self._obj:
@@ -32,7 +35,10 @@ class ExternalAccessor:
         model = StarDist2D.from_pretrained('2D_versatile_fluo')
         
         # Predict the label image
-        labels, _ = model.predict_instances(nuclear_img, scale=scale, n_tiles=(n_tiles, n_tiles))
+        if predict_big:
+            labels, _ = model.predict_instances_big(dapi_img_normalized, scale=scale, axes=axes, block_size=block_size, min_overlap=min_overlap, context=context)
+        else:
+            labels, _ = model.predict_instances(nuclear_img, scale=scale, n_tiles=(n_tiles, n_tiles))
         
         # Adding the segmentation mask to the xarray dataset
         return self._obj.pp.add_segmentation(labels)
@@ -57,3 +63,17 @@ class ExternalAccessor:
         # setting the cell dtype to int
         assigned_cell_types['cell'] = assigned_cell_types['cell'].astype(int)
         return self._obj.pp.add_labels(assigned_cell_types)
+    
+    
+    def export_to_spatialdata(self):
+        """Export the xarray to a spatial data object"""
+        image_raw = self._obj[Layers.IMAGE].values
+        segmentation_masks = self._obj[Layers.SEGMENTATION].values
+        # constructing the anndata object
+        adata = anndata.AnnData(self._obj[Layers.INTENSITY].values)
+        adata.var_names = self._obj.coords[Dims.CHANNELS].values
+        # adding the cell type predictions, sizes, etc.
+        obs_df = pd.DataFrame(self._obj[Layers.OBS], columns=self._obj.coords[Dims.FEATURES])
+        adata.obs = obs_df
+        spatial_data_object = spatialdata.SpatialData(images={"image_raw": image_raw}, labels={"segmentation_masks": segmentation_masks}, table=adata)
+        return spatial_data_object

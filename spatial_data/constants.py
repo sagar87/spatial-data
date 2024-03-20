@@ -45,6 +45,7 @@ class Features(object):
     X = "centroid-1"  # "_x"
     Y = "centroid-0"  # "_y"
     TRANSFORMS = ["arcsinh", "log", "sqrt", "zscore"]
+    BINARIZATION_METHODS = ["otsu"]
 
 
 COLORS = [
