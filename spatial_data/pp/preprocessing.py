@@ -275,6 +275,7 @@ class PreprocessingAccessor:
     def add_observations(
         self,
         properties: Union[str, list, tuple] = ("label", "centroid"),
+        overwrite: bool = False,
         return_xarray: bool = False,
     ) -> xr.Dataset:
         """
@@ -308,12 +309,18 @@ class PreprocessingAccessor:
         label = table.pop("label")
         data = []
         cols = []
+        cols_to_overwrite = []
 
         for k, v in table.items():
             if Dims.FEATURES in self._obj.coords:
                 if k in self._obj.coords[Dims.FEATURES] and not return_xarray:
-                    logger.warning(f"Found {k} in _obs. Skipping.")
-                    continue
+                    if not overwrite:
+                        logger.warning(f"Found {k} in _obs. Skipping.")
+                        continue
+                    else:
+                        cols_to_overwrite.append(k)
+
+                        
             cols.append(k)
             data.append(v)
 
@@ -334,14 +341,21 @@ class PreprocessingAccessor:
         # if there are already observations, concatenate them
         if Layers.OBS in self._obj:
             logger.info("Found _obs in image container. Concatenating.")
+            previous_obs = self._obj[Layers.OBS].copy()
+            if len(cols_to_overwrite) > 0:
+                logger.info(f"Overwriting {cols_to_overwrite}.")
+                previous_obs = previous_obs.drop_sel(features=cols_to_overwrite)
             da = xr.concat(
-                [self._obj[Layers.OBS].copy(), da],
+                [previous_obs, da],
                 dim=Dims.FEATURES,
             )
-
+            # removing the old obs from the object
+            self._obj = self._obj.drop_vars(Layers.OBS)
+  
         return xr.merge([self._obj, da])
 
     # TODO: channels is not used here, needs to be implemented properly
+    # TODO: add an argument that lets the user decide if the data should be parsed to be in uint8 range (required for astir)
     def add_quantification(
         self,
         channels: Union[str, list] = "all",

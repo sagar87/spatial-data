@@ -50,7 +50,6 @@ def remove_overlaps_nearest_neighbors(masks, centroids):
 def grow_masks(flatmasks, centroids, growth, num_neighbors=30):
     masks = flatmasks.copy()
     num_masks = len(np.unique(masks)) - 1
-    print(f"Growing masks, initial number of masks: {num_masks}")
     indices = np.where(masks != 0)
     values = masks[indices[0], indices[1]]
 
@@ -73,8 +72,6 @@ def grow_masks(flatmasks, centroids, growth, num_neighbors=30):
             currlayer += 1
         labels[n + 1] = currlayer
 
-    print(f"Num labels: {len(labels)}, Labels: {labels}")
-
     possible_layers = len(list(set(labels.values())))
     label_frame = pd.DataFrame(list(labels.items()), columns=["maskid", "layer"])
     image_h, image_w = masks.shape
@@ -88,11 +85,11 @@ def grow_masks(flatmasks, centroids, growth, num_neighbors=30):
 
     dilation_mask = disk(1)
     grown_masks = np.copy(expanded_masks)
-    print(f"Number of grown masks in the middle: {len(np.unique(grown_masks))}")
     for _ in range(growth):
         for i in range(possible_layers):
             grown_masks[:, :, i] = dilation(grown_masks[:, :, i], dilation_mask)
-    print(f"Number of grown masks after dilation: {len(np.unique(grown_masks))}")
     flatmasks = remove_overlaps_nearest_neighbors(grown_masks, centroids)
-    print(f"Number of grown masks after removing overlaps: {len(np.unique(flatmasks))}")
+    
+    # assert that the new number of masks is the same as before
+    assert len(np.unique(flatmasks)) - 1 == num_masks, f"Number of masks changed after growing: went from {num_masks} to {len(np.unique(flatmasks)) - 1}. Ensure that your masks are labeled 1 to n."
     return flatmasks

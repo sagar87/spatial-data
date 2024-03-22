@@ -21,6 +21,21 @@ def _remove_unlabeled_cells(segmentation: np.ndarray, cells: np.ndarray, copy: b
     return segmentation
 
 
+def _relabel_cells(segmentation: np.ndarray):
+    # this method relabels cells, so if you have non-consecutive labels, they will be turned into labels from 1-n again
+    # this is important since CellSeg's mask growing relies on this assumption
+    unique_values = np.unique(segmentation)  # Find unique values in the array
+    num_unique_values = len(unique_values)  # Get the number of unique values
+
+    # Create a mapping from original values to new values
+    value_map = {value: i for i, value in enumerate(unique_values)}
+
+    # Map the original array to the new values using the mapping
+    segmentation_relabeled = np.vectorize(lambda x: value_map[x])(segmentation)
+
+    return segmentation_relabeled, value_map
+
+
 @xr.register_dataset_accessor("se")
 class SegmentationAccessor:
     """Handles everything that relates to the provided segmentation."""
@@ -32,6 +47,7 @@ class SegmentationAccessor:
         """
         Filters cells by size.
         """
+                
         # checking if the segmentation layer is present
         if Layers.SEGMENTATION not in self._obj:
             raise ValueError("The object does not contain a segmentation mask.")
@@ -51,6 +67,11 @@ class SegmentationAccessor:
 
         # setting all cells that are not in cells to 0
         segmentation = _remove_unlabeled_cells(segmentation.values, cells)
+        # relabeling cells in the segmentation mask so the IDs go from 1 to n again
+        segmentation, relabel_dict = _relabel_cells(segmentation)
+        
+        # updating the cell names of the object using the relabel dict
+        self._obj = self._obj.assign_coords(cells=[relabel_dict[cell] for cell in self._obj.coords["cells"].values])
 
         # putting the resulting segmentation mask into a data array and adding it to the xarray object
         da = xr.DataArray(
@@ -62,24 +83,33 @@ class SegmentationAccessor:
 
         # removing the old segmentation
         self._obj = self._obj.drop_vars(Layers.SEGMENTATION)
-
-        return xr.merge([self._obj, da])
+        self._obj = xr.merge([self._obj, da])
+        
+        # running some checks to ensure consistency between the cell labels and the segmentation mask
+        assert len(self._obj.coords["cells"].values) == len(np.unique(segmentation)) - 1, f"Number of cells and unique cell IDs in the segmentation mask do not match. Coords have {len(self._obj.coords['cells'].values)} and segmentation has {len(np.unique(segmentation)) - 1}."
+        # making sure all cells (non-zero entries) in the segmentation mask are also in the coords
+        assert np.all(np.isin(np.unique(segmentation[segmentation != 0]), self._obj.coords["cells"].values)), "Not all cells in the segmentation mask are in the coords."
+        
+        return self._obj
 
     def grow_cells(self, iterations: int = 2, verbose: bool = True):
         """
         Grows the cells in the segmentation mask.
         """
-        raise NotImplementedError(
-            "This method is not yet implemented, because the CellSeq code has some weird behavior."
-        )
+        #raise NotImplementedError(
+        #    "This method is not yet implemented, because the CellSeq code has some weird behavior."
+        #)
         # checking if the segmentation layer is present
         if Layers.SEGMENTATION not in self._obj:
             raise ValueError("The object does not contain a segmentation mask.")
+        
+        # checking if the segmentation masks are labeled 1 to n
+        unique_values = np.unique(self._obj[Layers.SEGMENTATION].values)
+        assert np.all(unique_values == np.arange(0, len(unique_values))), "Segmentation mask is not labeled 1 to n, which is required for mask growing to work properly"
 
         segmentation = self._obj[Layers.SEGMENTATION].values
         centroids = compute_centroids(segmentation)
         num_neighbors = min(30, self._obj.dims["cells"] - 1)
-        print(num_neighbors)
         masks_grown = grow_masks(segmentation, centroids, iterations, num_neighbors=num_neighbors)
 
         # assigning the grown masks to the object
@@ -89,16 +119,12 @@ class SegmentationAccessor:
             dims=[Dims.Y, Dims.X],
             name=Layers.SEGMENTATION,
         )
+        
+        # replacing the old segmentation mask with the new one
+        self._obj = self._obj.drop_vars(Layers.SEGMENTATION)
+        self._obj = xr.merge([self._obj, da])
 
-        # TODO: apparently we are losing cells here, this needs more work
         # after segmentation masks were grown, the areas need to be updated
-        # self._obj = self._obj.pp.add_observations(['label', 'area'])
-        print(len(centroids))
-        print(len(np.unique(segmentation)))
-        print(len(np.unique(masks_grown)))
-        table = regionprops_table(masks_grown, properties=("label", "area"))
-        print(table["area"].shape)
-        self._obj = self._obj.pp.add_properties(table["area"], prop="area_grown")
-
-        # TODO: reactivate this
-        # return xr.merge([self._obj, da])
+        self._obj = self._obj.pp.add_observations(['label', 'area'], overwrite=True)
+        
+        return self._obj
